@@ -66,13 +66,26 @@ function validatePayload(payload) {
 // Create Snowflake connection
 async function createSnowflakeConnection() {
   return new Promise((resolve, reject) => {
+    console.log('Creating Snowflake connection with config:', {
+      account: snowflakeConfig.account,
+      username: snowflakeConfig.username,
+      warehouse: snowflakeConfig.warehouse,
+      database: snowflakeConfig.database,
+      schema: snowflakeConfig.schema,
+      role: snowflakeConfig.role,
+      authenticator: snowflakeConfig.authenticator,
+      hasPrivateKey: !!snowflakeConfig.privateKey
+    });
+    
     const connection = snowflake.createConnection(snowflakeConfig);
     
     connection.connect((err, conn) => {
       if (err) {
+        console.error('Snowflake connection error:', err);
         reject(new Error(`Failed to connect to Snowflake: ${err.message}`));
         return;
       }
+      console.log('Successfully connected to Snowflake');
       resolve(conn);
     });
   });
