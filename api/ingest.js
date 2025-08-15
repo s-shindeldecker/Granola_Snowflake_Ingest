@@ -197,6 +197,11 @@ export default async function handler(req, res) {
     
   } catch (error) {
     console.error('Ingest API error:', error);
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
     
     // Return appropriate error response
     if (error.message.includes('Invalid authorization') || error.message.includes('Invalid API key')) {
@@ -209,7 +214,8 @@ export default async function handler(req, res) {
     
     // Default to 500 for unexpected errors
     return res.status(500).json({ 
-      error: 'Internal server error. Please try again later.' 
+      error: 'Internal server error. Please try again later.',
+      details: error.message
     });
   }
 }
