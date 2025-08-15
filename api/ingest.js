@@ -4,7 +4,7 @@ import snowflake from 'snowflake-sdk';
 const snowflakeConfig = {
   account: process.env.SNOWFLAKE_ACCOUNT,
   username: process.env.SNOWFLAKE_USER,
-  password: process.env.SNOWFLAKE_PASSWORD,
+  privateKey: process.env.SNOWFLAKE_PRIVATE_KEY,
   warehouse: process.env.SNOWFLAKE_WAREHOUSE,
   database: process.env.SNOWFLAKE_DATABASE,
   schema: process.env.SNOWFLAKE_SCHEMA,
@@ -16,7 +16,7 @@ function validateEnvironment() {
   const required = [
     'SNOWFLAKE_ACCOUNT',
     'SNOWFLAKE_USER', 
-    'SNOWFLAKE_PASSWORD',
+    'SNOWFLAKE_PRIVATE_KEY',
     'SNOWFLAKE_WAREHOUSE',
     'SNOWFLAKE_DATABASE',
     'SNOWFLAKE_SCHEMA',
