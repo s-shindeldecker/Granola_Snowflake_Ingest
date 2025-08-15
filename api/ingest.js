@@ -5,6 +5,7 @@ const snowflakeConfig = {
   account: process.env.SNOWFLAKE_ACCOUNT,
   username: process.env.SNOWFLAKE_USER,
   privateKey: process.env.SNOWFLAKE_PRIVATE_KEY,
+  authenticator: 'SNOWFLAKE_JWT',
   warehouse: process.env.SNOWFLAKE_WAREHOUSE,
   database: process.env.SNOWFLAKE_DATABASE,
   schema: process.env.SNOWFLAKE_SCHEMA,
