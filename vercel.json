@@ -1,0 +1,17 @@
+{
+  "functions": {
+    "api/ingest.js": {
+      "maxDuration": 30
+    }
+  },
+  "env": {
+    "SNOWFLAKE_ACCOUNT": "@snowflake_account",
+    "SNOWFLAKE_USER": "@snowflake_user",
+    "SNOWFLAKE_PASSWORD": "@snowflake_password",
+    "SNOWFLAKE_WAREHOUSE": "@snowflake_warehouse",
+    "SNOWFLAKE_DATABASE": "@snowflake_database",
+    "SNOWFLAKE_SCHEMA": "@snowflake_schema",
+    "SNOWFLAKE_ROLE": "@snowflake_role",
+    "INGEST_API_KEY": "@ingest_api_key"
+  }
+}

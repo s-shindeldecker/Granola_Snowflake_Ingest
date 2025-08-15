@@ -1,0 +1,29 @@
+{
+  "name": "granola-snowflake-ingest",
+  "version": "1.0.0",
+  "description": "Simple ingestion API for Vercel that receives Granola transcripts from Zapier and inserts them into Snowflake",
+  "type": "module",
+  "main": "api/ingest.js",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "dependencies": {
+    "snowflake-sdk": "^1.9.0"
+  },
+  "devDependencies": {
+    "vercel": "^32.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "vercel",
+    "snowflake",
+    "api",
+    "ingestion",
+    "granola"
+  ],
+  "author": "",
+  "license": "MIT"
+}
