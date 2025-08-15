@@ -161,11 +161,21 @@ async function insertMeeting(connection, payload) {
     ) VALUES (?, ?, ?, ?, ?, ?, ?)
   `;
   
+  // Convert participants array to proper format for Snowflake ARRAY type
+  let participantsParam;
+  if (Array.isArray(payload.participants)) {
+    // For Snowflake ARRAY type, we need to pass it as a proper array
+    participantsParam = payload.participants;
+  } else {
+    // Fallback: convert to array if it's not already
+    participantsParam = [payload.participants];
+  }
+  
   const params = [
     payload.meeting_id,
     payload.title,
     payload.datetime,
-    JSON.stringify(payload.participants), // Convert array to JSON string for Snowflake ARRAY type
+    participantsParam, // Pass the array directly
     payload.note_url,
     payload.granola_summary,
     payload.transcript
