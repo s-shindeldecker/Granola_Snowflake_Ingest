@@ -1,15 +1,15 @@
 import snowflake from 'snowflake-sdk';
+import { getSnowflakePrivateKeyParam, computePrivateKeyFingerprint, detectKeySource } from "../utils/keys.js";
 
 // Configure Snowflake connection
 const snowflakeConfig = {
   account: process.env.SNOWFLAKE_ACCOUNT,
   username: process.env.SNOWFLAKE_USER,
-  privateKey: process.env.SNOWFLAKE_PRIVATE_KEY,
-  authenticator: 'SNOWFLAKE_JWT',
   warehouse: process.env.SNOWFLAKE_WAREHOUSE,
   database: process.env.SNOWFLAKE_DATABASE,
   schema: process.env.SNOWFLAKE_SCHEMA,
   role: process.env.SNOWFLAKE_ROLE,
+  authenticator: 'SNOWFLAKE_JWT',
 };
 
 // Validate required environment variables
@@ -17,7 +17,6 @@ function validateEnvironment() {
   const required = [
     'SNOWFLAKE_ACCOUNT',
     'SNOWFLAKE_USER', 
-    'SNOWFLAKE_PRIVATE_KEY',
     'SNOWFLAKE_WAREHOUSE',
     'SNOWFLAKE_DATABASE',
     'SNOWFLAKE_SCHEMA',
@@ -66,18 +65,40 @@ function validatePayload(payload) {
 // Create Snowflake connection
 async function createSnowflakeConnection() {
   return new Promise((resolve, reject) => {
+    // Load and validate the private key
+    let keyParam;
+    try {
+      keyParam = getSnowflakePrivateKeyParam();
+      console.info("Snowflake key source:", detectKeySource());
+      try {
+        const fp = computePrivateKeyFingerprint(keyParam);
+        console.info("Snowflake key fingerprint (base64):", fp);
+      } catch (e) {
+        console.warn("Could not compute key fingerprint:", e?.message || e);
+      }
+    } catch (e) {
+      reject(new Error(`Private key configuration error: ${e.message}`));
+      return;
+    }
+
+    // Create connection config with the validated key
+    const connectionConfig = {
+      ...snowflakeConfig,
+      privateKey: keyParam,
+    };
+
     console.log('Creating Snowflake connection with config:', {
-      account: snowflakeConfig.account,
-      username: snowflakeConfig.username,
-      warehouse: snowflakeConfig.warehouse,
-      database: snowflakeConfig.database,
-      schema: snowflakeConfig.schema,
-      role: snowflakeConfig.role,
-      authenticator: snowflakeConfig.authenticator,
-      hasPrivateKey: !!snowflakeConfig.privateKey
+      account: connectionConfig.account,
+      username: connectionConfig.username,
+      warehouse: connectionConfig.warehouse,
+      database: connectionConfig.database,
+      schema: connectionConfig.schema,
+      role: connectionConfig.role,
+      authenticator: connectionConfig.authenticator,
+      hasPrivateKey: !!connectionConfig.privateKey
     });
     
-    const connection = snowflake.createConnection(snowflakeConfig);
+    const connection = snowflake.createConnection(connectionConfig);
     
     connection.connect((err, conn) => {
       if (err) {
@@ -86,6 +107,17 @@ async function createSnowflakeConnection() {
         return;
       }
       console.log('Successfully connected to Snowflake');
+      
+      // Optional: confirm identity after connection
+      conn.execute({
+        sqlText: 'SELECT CURRENT_USER() as current_user',
+        complete: (err, stmt, rows) => {
+          if (!err && rows && rows.length > 0) {
+            console.info('Connected as Snowflake user:', rows[0].CURRENT_USER);
+          }
+        }
+      });
+      
       resolve(conn);
     });
   });
