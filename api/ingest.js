@@ -160,7 +160,12 @@ export default async function handler(req, res) {
     // Parse and validate request body
     let payload;
     try {
-      payload = JSON.parse(req.body);
+      // Handle both string and already-parsed JSON body
+      if (typeof req.body === 'string') {
+        payload = JSON.parse(req.body);
+      } else {
+        payload = req.body;
+      }
     } catch (err) {
       return res.status(400).json({ 
         error: 'Invalid JSON in request body' 
