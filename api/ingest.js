@@ -161,21 +161,21 @@ async function insertMeeting(connection, payload) {
     ) VALUES (?, ?, ?, ?, ?, ?, ?)
   `;
   
-  // Convert participants array to proper format for Snowflake ARRAY type
+  // Convert participants array to a format Snowflake ARRAY type can handle
   let participantsParam;
   if (Array.isArray(payload.participants)) {
-    // For Snowflake ARRAY type, we need to pass it as a proper array
-    participantsParam = payload.participants;
+    // Convert array to a properly formatted string for Snowflake ARRAY
+    participantsParam = `[${payload.participants.map(p => `"${p}"`).join(',')}]`;
   } else {
-    // Fallback: convert to array if it's not already
-    participantsParam = [payload.participants];
+    // Fallback: convert to array format if it's not already
+    participantsParam = `["${payload.participants}"]`;
   }
   
   const params = [
     payload.meeting_id,
     payload.title,
     payload.datetime,
-    participantsParam, // Pass the array directly
+    participantsParam, // Pass as formatted array string
     payload.note_url,
     payload.granola_summary,
     payload.transcript
