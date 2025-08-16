@@ -212,29 +212,22 @@ function dropAndRecreateTable(connection, resolve, reject) {
 
 // Insert meeting data
 async function insertMeeting(connection, payload) {
+  // Use prepared statement approach for complex data types
   const insertSQL = `
     INSERT INTO MEETINGS (
       meeting_id, title, datetime, participants, note_url, granola_summary, transcript
-    ) VALUES (
-      ?, 
-      ?, 
-      TO_TIMESTAMP_TZ(?), 
-      PARSE_JSON(?), 
-      ?, 
-      ?, 
-      PARSE_JSON(?)
-    )
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
   `;
   
-  // Prepare parameters - JSON.stringify for complex types
+  // Prepare parameters - let Snowflake handle type conversion
   const params = [
     payload.meeting_id,
     payload.title,
     payload.datetime,
-    JSON.stringify(payload.participants),     // ARRAY -> PARSE_JSON(?)
+    payload.participants,        // Pass array directly
     payload.note_url,
     payload.granola_summary,
-    JSON.stringify(payload.transcript)        // VARIANT -> PARSE_JSON(?)
+    payload.transcript           // Pass object directly
   ];
   
   return new Promise((resolve, reject) => {
