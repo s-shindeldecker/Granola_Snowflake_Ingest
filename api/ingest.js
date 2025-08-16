@@ -215,7 +215,7 @@ async function insertMeeting(connection, payload) {
   const insertSQL = `
     INSERT INTO MEETINGS (
       meeting_id, title, datetime, participants, note_url, granola_summary, transcript
-    ) VALUES (?, ?, ?, PARSE_JSON(?), ?, ?, ?)
+    ) VALUES (?, ?, ?, PARSE_JSON(?), ?, PARSE_JSON(?), PARSE_JSON(?))
   `;
   
   // Convert participants array to JSON string for PARSE_JSON function
@@ -234,8 +234,8 @@ async function insertMeeting(connection, payload) {
     payload.datetime,
     participantsParam, // Pass as JSON string for PARSE_JSON
     payload.note_url,
-    payload.granola_summary,
-    payload.transcript
+    JSON.stringify(payload.granola_summary), // Convert to JSON for VARIANT
+    JSON.stringify(payload.transcript) // Convert to JSON for VARIANT
   ];
   
   return new Promise((resolve, reject) => {
