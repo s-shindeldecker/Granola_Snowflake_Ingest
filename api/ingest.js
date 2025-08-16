@@ -212,30 +212,29 @@ function dropAndRecreateTable(connection, resolve, reject) {
 
 // Insert meeting data
 async function insertMeeting(connection, payload) {
-  // Convert participants array to JSON string for direct insertion
-  let participantsParam;
-  if (Array.isArray(payload.participants)) {
-    participantsParam = JSON.stringify(payload.participants);
-  } else {
-    participantsParam = JSON.stringify([payload.participants]);
-  }
-  
-  // Convert transcript to JSON string for direct insertion
-  const transcriptParam = JSON.stringify(payload.transcript);
-  
-  // Use direct column references for complex types, parameter binding for simple types
   const insertSQL = `
     INSERT INTO MEETINGS (
       meeting_id, title, datetime, participants, note_url, granola_summary, transcript
-    ) VALUES (?, ?, ?, ${participantsParam}, ?, ?, ${transcriptParam})
+    ) VALUES (
+      ?, 
+      ?, 
+      TO_TIMESTAMP_TZ(?), 
+      PARSE_JSON(?), 
+      ?, 
+      ?, 
+      PARSE_JSON(?)
+    )
   `;
   
+  // Prepare parameters - JSON.stringify for complex types
   const params = [
     payload.meeting_id,
     payload.title,
     payload.datetime,
+    JSON.stringify(payload.participants),     // ARRAY -> PARSE_JSON(?)
     payload.note_url,
-    payload.granola_summary
+    payload.granola_summary,
+    JSON.stringify(payload.transcript)        // VARIANT -> PARSE_JSON(?)
   ];
   
   return new Promise((resolve, reject) => {
