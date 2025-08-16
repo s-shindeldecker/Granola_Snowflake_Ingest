@@ -215,7 +215,7 @@ async function insertMeeting(connection, payload) {
   const insertSQL = `
     INSERT INTO MEETINGS (
       meeting_id, title, datetime, participants, note_url, granola_summary, transcript
-    ) VALUES (?, ?, TO_TIMESTAMP_TZ(?), TO_ARRAY(?), ?, ?, PARSE_JSON(?))
+    ) VALUES (?, ?, ?, TO_ARRAY(?), ?, ?, PARSE_JSON(?))
   `;
   
   // Convert participants array to JSON string for TO_ARRAY function
@@ -228,17 +228,10 @@ async function insertMeeting(connection, payload) {
     participantsParam = JSON.stringify([payload.participants]);
   }
   
-  // Ensure datetime is properly formatted for TIMESTAMP_TZ
-  let datetimeParam = payload.datetime;
-  if (datetimeParam && !datetimeParam.includes('Z') && !datetimeParam.includes('+')) {
-    // If no timezone info, assume UTC
-    datetimeParam = datetimeParam + 'Z';
-  }
-  
   const params = [
     payload.meeting_id,
     payload.title,
-    datetimeParam, // Pass as string for TO_TIMESTAMP_TZ
+    payload.datetime, // Pass datetime as-is (was working before)
     participantsParam, // Pass as JSON string for TO_ARRAY
     payload.note_url,
     payload.granola_summary, // Pass as string for TEXT
