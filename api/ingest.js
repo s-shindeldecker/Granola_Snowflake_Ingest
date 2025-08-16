@@ -212,30 +212,30 @@ function dropAndRecreateTable(connection, resolve, reject) {
 
 // Insert meeting data
 async function insertMeeting(connection, payload) {
+  // Convert participants array to JSON string for direct insertion
+  let participantsParam;
+  if (Array.isArray(payload.participants)) {
+    participantsParam = JSON.stringify(payload.participants);
+  } else {
+    participantsParam = JSON.stringify([payload.participants]);
+  }
+  
+  // Convert transcript to JSON string for direct insertion
+  const transcriptParam = JSON.stringify(payload.transcript);
+  
+  // Use direct column references for complex types, parameter binding for simple types
   const insertSQL = `
     INSERT INTO MEETINGS (
       meeting_id, title, datetime, participants, note_url, granola_summary, transcript
-    ) VALUES (?, ?, ?, TO_ARRAY(?), ?, ?, PARSE_JSON(?))
+    ) VALUES (?, ?, ?, ${participantsParam}, ?, ?, ${transcriptParam})
   `;
-  
-  // Convert participants array to JSON string for TO_ARRAY function
-  let participantsParam;
-  if (Array.isArray(payload.participants)) {
-    // Convert array to JSON string for Snowflake's TO_ARRAY function
-    participantsParam = JSON.stringify(payload.participants);
-  } else {
-    // Fallback: convert to array format if it's not already
-    participantsParam = JSON.stringify([payload.participants]);
-  }
   
   const params = [
     payload.meeting_id,
     payload.title,
-    payload.datetime, // Pass datetime as-is (was working before)
-    participantsParam, // Pass as JSON string for TO_ARRAY
+    payload.datetime,
     payload.note_url,
-    payload.granola_summary, // Pass as string for TEXT
-    JSON.stringify(payload.transcript) // Convert to JSON for VARIANT
+    payload.granola_summary
   ];
   
   return new Promise((resolve, reject) => {
