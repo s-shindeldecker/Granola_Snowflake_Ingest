@@ -215,13 +215,13 @@ async function insertMeeting(connection, payload) {
   const insertSQL = `
     INSERT INTO MEETINGS (
       meeting_id, title, datetime, participants, note_url, granola_summary, transcript
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, TO_ARRAY(?), ?, ?, ?)
   `;
   
-  // Convert participants array to JSON string for ARRAY type
+  // Convert participants array to JSON string for TO_ARRAY function
   let participantsParam;
   if (Array.isArray(payload.participants)) {
-    // Convert array to JSON string for Snowflake ARRAY type
+    // Convert array to JSON string for Snowflake's TO_ARRAY function
     participantsParam = JSON.stringify(payload.participants);
   } else {
     // Fallback: convert to array format if it's not already
@@ -232,7 +232,7 @@ async function insertMeeting(connection, payload) {
     payload.meeting_id,
     payload.title,
     payload.datetime,
-    participantsParam, // Pass as JSON string for ARRAY
+    participantsParam, // Pass as JSON string for TO_ARRAY
     payload.note_url,
     payload.granola_summary, // Pass as string for TEXT
     payload.transcript // Pass as string for VARIANT
