@@ -1,8 +1,10 @@
 import snowflake from "snowflake-sdk";
+import OpenAI from "openai";
 import { getSnowflakePrivateKeyParam } from "../utils/keys.js";
 
 const {
   INGEST_API_KEY,
+  OPENAI_API_KEY,
   SNOWFLAKE_ACCOUNT,
   SNOWFLAKE_USER,
   SNOWFLAKE_WAREHOUSE,
@@ -10,6 +12,8 @@ const {
   SNOWFLAKE_SCHEMA,
   SNOWFLAKE_ROLE,
 } = process.env;
+
+const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
 function authOK(req) {
   const h = req.headers.get?.("authorization") || req.headers.authorization || "";
@@ -102,7 +106,7 @@ export default async function handler(req, res) {
     if (!question) return res.status(400).json({ error: "missing_question" });
 
     const topK = Math.min(Math.max(Number(body.top_k || 8), 1), 20);
-    const model = (body.model || "mistral-large-2"); // can be "snowflake-arctic-instruct" etc.
+    const model = body.model || "gpt-4o-mini"; // OpenAI model
 
     const conn = await getConn();
 
@@ -128,13 +132,19 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, answer: "I couldn't find anything relevant.", sources: [] });
     }
 
-    // 2) Build prompt and call AI_COMPLETE in Snowflake
+    // 2) Build prompt and call OpenAI
     const prompt = mkPrompt(question, rows.slice(0, topK));
-    const ansRows = await exec(conn, `
-      SELECT AI_COMPLETE(?, ?, OBJECT_CONSTRUCT('temperature', 0.2, 'max_output_tokens', 800)) AS ANSWER
-    `, [model, prompt]);
+    const completion = await openai.chat.completions.create({
+      model: model,
+      max_tokens: 800,
+      temperature: 0.2,
+      messages: [
+        { role: "system", content: "You are a helpful assistant that answers questions based on meeting transcripts." },
+        { role: "user", content: prompt }
+      ]
+    });
 
-    const answer = ansRows?.[0]?.ANSWER || "";
+    const answer = completion.choices[0]?.message?.content || "";
 
     // Return answer plus lightweight citations
     const sources = rows.map(r => ({
