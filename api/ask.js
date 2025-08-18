@@ -168,7 +168,12 @@ export default async function handler(req, res) {
       contentType: "application/json",
       accept: "application/json",
       body: JSON.stringify({
-        prompt: prompt,
+        messages: [
+          {
+            role: "user",
+            content: prompt
+          }
+        ],
         maxTokens: 800,
         temperature: 0.2,
         topP: 0.9
@@ -176,7 +181,7 @@ export default async function handler(req, res) {
     }));
 
     const responseBody = JSON.parse(new TextDecoder().decode(bedrockResponse.body));
-    const answer = responseBody.completion || responseBody.text || "";
+    const answer = responseBody.content?.[0]?.text || responseBody.completion || responseBody.text || "";
 
     // Return answer plus lightweight citations
     const sources = rows.map(r => ({
