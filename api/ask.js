@@ -1,6 +1,7 @@
 import snowflake from "snowflake-sdk";
 import { BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
 import { getSnowflakePrivateKeyParam } from "../utils/keys.js";
+import { retrieveChunks } from "../src/rag/retrieve.js";
 
 const {
   INGEST_API_KEY,
@@ -42,82 +43,6 @@ function authOK(req) {
   return INGEST_API_KEY && h === `Bearer ${INGEST_API_KEY}`;
 }
 
-async function getConn() {
-  const conn = snowflake.createConnection({
-    account: SNOWFLAKE_ACCOUNT,
-    username: SNOWFLAKE_USER,
-    authenticator: "SNOWFLAKE_JWT",
-    privateKey: getSnowflakePrivateKeyParam(),
-    warehouse: SNOWFLAKE_WAREHOUSE,
-    database: SNOWFLAKE_DATABASE,
-    schema: SNOWFLAKE_SCHEMA,
-    role: SNOWFLAKE_ROLE,
-  });
-  await new Promise((res, rej) => conn.connect((e) => (e ? rej(e) : res())));
-  return conn;
-}
-function exec(conn, sqlText, binds = []) {
-  return new Promise((resolve, reject) => {
-    conn.execute({
-      sqlText,
-      binds,
-      complete: (err, stmt, rows) => (err ? reject(err) : resolve(rows || [])),
-    });
-  });
-}
-
-function buildFilterClause(filters, binds) {
-  let where = `c.EMBED_1024 IS NOT NULL`;
-  let filterBinds = [];
-  
-  // Ensure binds is an array
-  const baseBinds = Array.isArray(binds) ? binds : [];
-  
-  if (!filters) return { where, binds: baseBinds };
-  
-  if (filters.meeting_id) { 
-    where += ` AND c.MEETING_ID = ?`; 
-    filterBinds.push(filters.meeting_id); 
-  }
-  if (filters.title_like) { 
-    where += ` AND m.TITLE ILIKE ?`; 
-    filterBinds.push(`%${filters.title_like}%`); 
-  }
-  if (filters.participants_contains) { 
-    where += ` AND m.PARTICIPANTS ILIKE ?`; 
-    filterBinds.push(`%${filters.participants_contains}%`); 
-  }
-  if (filters.date_from) { 
-    where += ` AND m.DATETIME >= TO_TIMESTAMP_TZ(?)`; 
-    filterBinds.push(filters.date_from); 
-  }
-  if (filters.date_to) { 
-    where += ` AND m.DATETIME <= TO_TIMESTAMP_TZ(?)`; 
-    filterBinds.push(filters.date_to); 
-  }
-  
-  return { where, binds: [...baseBinds, ...filterBinds] };
-}
-
-function mkPrompt(question, rows) {
-  const context = rows.map((r, i) =>
-    `# Source ${i+1} — ${r.TITLE || r.MEETING_ID} [${r.MEETING_ID}#${r.IDX}] (sim=${r.SIM.toFixed(3)})
-${r.TEXT}`.trim()
-  ).join("\n\n---\n\n");
-
-  return `You are an assistant grounded strictly in the provided meeting chunks.
-- Answer the user's question using ONLY the context.
-- If the answer isn't in the context, say you don't know.
-- Cite sources as [MEETING_ID#IDX].
-
-Question: ${question}
-
-Context:
-${context}
-
-Now produce a concise, actionable answer with bullet points and explicit citations.`;
-}
-
 export default async function handler(req, res) {
   // Add CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -137,47 +62,68 @@ export default async function handler(req, res) {
     const question = (body.question || "").trim();
     if (!question) return res.status(400).json({ error: "missing_question" });
 
-    const topK = Math.min(Math.max(Number(body.top_k || 8), 1), 20);
-    const modelId = body.model || "amazon.nova-pro-v1:0"; // Nova Pro model
+    const k = body.k ?? 12;
+    const scope = body.scope; // { meeting?: string, customer?: string }
 
-    const conn = await getConn();
+    // Build system seatbelts based on scope
+    const system = `
+You are summarizing/or answering questions about meeting content.
+${scope?.meeting ? `If scope.meeting is set (e.g., "${scope.meeting}"), ONLY use context whose MEETING_TITLE contains that value.` : ''}
+${scope?.customer ? `If scope.customer is set (e.g., "${scope.customer}"), ONLY use context whose CUSTOMER contains that value.` : ''}
+${scope ? 'If no matching context exists, say: "I don\'t have notes for that meeting/customer."' : ''}
+${scope ? 'Do NOT draw from meetings that don\'t match scope.' : ''}
+Return concise answers and cite CHUNK_IDs you used.
+`.trim();
 
-    // 1) Retrieve top-K chunks using AI_EMBED + VECTOR_COSINE_SIMILARITY
-    const baseBinds = [question, topK];
-    const { where, binds: withFilters } = buildFilterClause(body.filters, baseBinds);
-    const rows = await exec(conn, `
-      WITH q AS (
-        SELECT AI_EMBED('snowflake-arctic-embed-l-v2.0', ?) AS QV
-      )
-      SELECT c.CHUNK_ID, c.MEETING_ID, c.IDX, c.TEXT,
-             m.TITLE,
-             VECTOR_COSINE_SIMILARITY(c.EMBED_1024, q.QV) AS SIM
-        FROM CHUNKS c
-        JOIN MEETINGS m ON m.MEETING_ID = c.MEETING_ID
-        JOIN q
-       WHERE ${where}
-       ORDER BY SIM DESC
-       LIMIT ?
-    `, withFilters);
-
-    if (!rows.length) {
-      return res.status(200).json({ ok: true, answer: "I couldn't find anything relevant.", sources: [] });
+    // Retrieve chunks using the new retrieval system
+    const chunks = await retrieveChunks({ question, scope, k });
+    
+    if (chunks.length === 0) {
+      if (scope) {
+        return res.status(200).json({ 
+          ok: true, 
+          answer: `I don't have notes for that ${scope.meeting ? 'meeting' : 'customer'}.`, 
+          sources: [] 
+        });
+      } else {
+        return res.status(200).json({ 
+          ok: true, 
+          answer: "I couldn't find anything relevant to your question.", 
+          sources: [] 
+        });
+      }
     }
 
-    // 2) Build prompt and call AWS Bedrock
-    const prompt = mkPrompt(question, rows.slice(0, topK));
-    
+    // Build context block for the LLM
+    const contextBlock = chunks.map(c =>
+      `[${c.id} | ${c.meetingTitle} | ${c.sectionTitle}]\n${c.text}`
+    ).join("\n\n---\n\n");
+
+    // Build Nova Pro messages
+    const messages = [
+      { role: "system", content: [{ text: system }] },
+      { role: "user", content: [{ text: `Question: ${question}
+
+Context:
+${contextBlock}
+
+Instructions:
+* Use ONLY the context above.
+${scope ? '* If none is relevant to the scope, say you don\'t have notes.' : ''}
+* End with: "Sources: " followed by the CHUNK_IDs used, comma-separated.` }] }
+    ];
+
     console.log('Calling Bedrock with:', {
-      modelId,
-      promptLength: prompt.length,
-      hasClient: !!bedrockClient
+      modelId: 'amazon.nova-pro-v1:0',
+      promptLength: contextBlock.length,
+      hasClient: !!bedrockClient,
+      scope,
+      chunksCount: chunks.length
     });
     
     const bedrockResponse = await bedrockClient.send(new ConverseCommand({
-      modelId: modelId,
-      messages: [
-        { role: "user", content: [{ text: prompt }] }
-      ],
+      modelId: 'amazon.nova-pro-v1:0',
+      messages: messages,
       inferenceConfig: {
         maxTokens: 800,
         temperature: 0.2,
@@ -189,12 +135,14 @@ export default async function handler(req, res) {
     const answer = responseBody?.output?.message?.content?.[0]?.text || "";
 
     // Return answer plus lightweight citations
-    const sources = rows.map(r => ({
-      meeting_id: r.MEETING_ID,
-      idx: r.IDX,
-      sim: Number(r.SIM),
-      title: r.TITLE,
-      snippet: String(r.TEXT).slice(0, 240)
+    const sources = chunks.map(c => ({
+      chunk_id: c.id,
+      meeting_id: c.meetingId,
+      meeting_title: c.meetingTitle,
+      customer: c.customer,
+      section_title: c.sectionTitle,
+      score: c.score,
+      snippet: String(c.text).slice(0, 240)
     }));
 
     res.status(200).json({ ok: true, answer, sources });

@@ -18,19 +18,40 @@ function authOK(req) {
   return INGEST_API_KEY && h === `Bearer ${ INGEST_API_KEY }`;
 }
 
-// ---- basic sentence-aware chunker with overlap ----
-function chunkBySentences(text, maxChars = 3000, overlap = 400) {
+// ---- improved chunker with metadata enrichment ----
+function chunkBySentences(text, targetTokens = 1000, overlapTokens = 150) {
   const src = String(text || "").replace(/\r/g, "\n");
-  // naive sentence splitter: split on end punctuation followed by space + capital/quote/paren
+  
+  // Approximate token count (rough estimate: 1 token ≈ 4 characters)
+  const estimateTokens = (str) => Math.ceil(str.length / 4);
+  
+  // Split on sentence boundaries, speaker changes, and natural breaks
   const sentences = src.split(/(?<=[\.\!\?])\s+(?=[A-Z0-9"'(])/g);
   const chunks = [];
   let buf = "";
+  let sectionId = 1;
+  let sectionTitle = "";
 
   const flushIfNeeded = () => {
-    if (buf.length >= maxChars) {
-      chunks.push(buf.slice(0, maxChars));
-      const tail = buf.slice(Math.max(0, buf.length - overlap));
+    if (estimateTokens(buf) >= targetTokens) {
+      // Generate section title from first sentence if none exists
+      if (!sectionTitle) {
+        const firstSentence = buf.split(/[.!?]/)[0].trim();
+        sectionTitle = firstSentence.length > 50 ? firstSentence.substring(0, 50) + "..." : firstSentence;
+      }
+      
+      chunks.push({
+        text: buf.slice(0, targetTokens * 4), // Approximate character limit
+        sectionId,
+        sectionTitle,
+        tokenCount: estimateTokens(buf)
+      });
+      
+      // Keep overlap for next chunk
+      const tail = buf.slice(Math.max(0, buf.length - overlapTokens * 4));
       buf = tail;
+      sectionId++;
+      sectionTitle = "";
     }
   };
 
@@ -41,7 +62,20 @@ function chunkBySentences(text, maxChars = 3000, overlap = 400) {
     else buf += (buf.endsWith("\n") ? "" : " ") + piece;
     flushIfNeeded();
   }
-  if (buf.trim()) chunks.push(buf.trim());
+  
+  if (buf.trim()) {
+    if (!sectionTitle) {
+      const firstSentence = buf.split(/[.!?]/)[0].trim();
+      sectionTitle = firstSentence.length > 50 ? firstSentence.substring(0, 50) + "..." : firstSentence;
+    }
+    chunks.push({
+      text: buf.trim(),
+      sectionId,
+      sectionTitle,
+      tokenCount: estimateTokens(buf)
+    });
+  }
+  
   return chunks;
 }
 
@@ -108,16 +142,69 @@ async function fetchTranscript(conn, meetingId) {
 }
 
 async function insertChunks(conn, meetingId, chunks) {
+  // Get meeting metadata for headers
+  const meetingRows = await exec(
+    conn,
+    `SELECT TITLE, DATETIME, PARTICIPANTS FROM MEETINGS WHERE MEETING_ID = ?`,
+    [meetingId]
+  );
+  
+  if (!meetingRows.length) {
+    throw new Error("meeting_not_found");
+  }
+  
+  const meeting = meetingRows[0];
+  const meetingTitle = meeting.TITLE || "Unknown Meeting";
+  const meetingDate = meeting.DATETIME ? new Date(meeting.DATETIME).toISOString().split('T')[0] : "Unknown Date";
+  
+  // Parse participants to get customer info (assuming first participant is customer)
+  let customer = "Unknown Customer";
+  try {
+    const participants = JSON.parse(meeting.PARTICIPANTS || '[]');
+    if (participants.length > 0) {
+      customer = participants[0];
+    }
+  } catch (e) {
+    console.log("Could not parse participants, using default customer");
+  }
+
   // idempotent refresh
-  await exec(conn, `delete from CHUNKS where MEETING_ID = ?`, [meetingId]);
+  await exec(conn, `DELETE FROM CHUNKS WHERE MEETING_ID = ?`, [meetingId]);
 
   let idx = 0;
-  for (const c of chunks) {
+  for (const chunk of chunks) {
+    // Create header for the chunk
+    const header = `[Meeting: ${meetingTitle} | Customer: ${customer} | Date: ${meetingDate} | Section: ${chunk.sectionTitle} | t=${idx}]`;
+    const headerizedText = `${header}\n${chunk.text}`;
+    
+    // Generate content hash for deduplication
+    const crypto = await import('crypto');
+    const contentHash = crypto.createHash('sha1').update(headerizedText).digest('hex');
+    
+    // Check if chunk with same hash already exists
+    const existingChunks = await exec(
+      conn,
+      `SELECT COUNT(*) as count FROM CHUNKS WHERE MEETING_ID = ? AND CONTENT_HASH = ?`,
+      [meetingId, contentHash]
+    );
+    
+    if (existingChunks[0].COUNT > 0) {
+      console.log(`Skipping duplicate chunk for meeting ${meetingId}, section ${chunk.sectionId}`);
+      continue;
+    }
+    
     await exec(
       conn,
-      `insert into CHUNKS (CHUNK_ID, MEETING_ID, IDX, TEXT)
-       values (?, ?, ?, ?)`,
-      [uuidv4(), meetingId, idx, c]
+      `INSERT INTO CHUNKS (
+        CHUNK_ID, MEETING_ID, IDX, TEXT, 
+        MEETING_TITLE, MEETING_DATE, CUSTOMER, 
+        SECTION_ID, SECTION_TITLE, TOKEN_COUNT, CONTENT_HASH
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        uuidv4(), meetingId, idx, headerizedText,
+        meetingTitle, meetingDate, customer,
+        chunk.sectionId, chunk.sectionTitle, chunk.tokenCount, contentHash
+      ]
     );
     idx += 1;
   }
@@ -126,10 +213,10 @@ async function insertChunks(conn, meetingId, chunks) {
   if (idx > 0) {
     await exec(
       conn,
-      `update CHUNKS
-          set EMBED_1024 = AI_EMBED('snowflake-arctic-embed-l-v2.0', TEXT)
-        where MEETING_ID = ?
-          and EMBED_1024 is null`,
+      `UPDATE CHUNKS
+          SET EMBED_1024 = AI_EMBED('snowflake-arctic-embed-l-v2.0', TEXT)
+        WHERE MEETING_ID = ?
+          AND EMBED_1024 IS NULL`,
       [meetingId]
     );
   }
@@ -168,7 +255,9 @@ export default async function handler(req, res) {
     const processOne = async (id) => {
       const t = await fetchTranscript(conn, id);
       if (!t || !String(t).trim()) return { meeting_id: id, chunks: 0, skipped: "empty_transcript" };
-      const chunks = chunkBySentences(String(t), 3000, 400);
+      
+      // Use improved chunking with target 800-1200 tokens and 100-200 token overlap
+      const chunks = chunkBySentences(String(t), 1000, 150);
       const n = await insertChunks(conn, id, chunks);
       return { meeting_id: id, chunks: n };
     };
