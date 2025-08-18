@@ -102,7 +102,7 @@ export default async function handler(req, res) {
     if (!question) return res.status(400).json({ error: "missing_question" });
 
     const topK = Math.min(Math.max(Number(body.top_k || 8), 1), 20);
-    const model = (body.model || "snowflake-arctic-instruct"); // can be "mistral-large-2" etc.
+    const model = (body.model || "mistral-large-2"); // can be "snowflake-arctic-instruct" etc.
 
     const conn = await getConn();
 
