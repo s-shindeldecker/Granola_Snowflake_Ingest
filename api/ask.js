@@ -171,7 +171,7 @@ export default async function handler(req, res) {
         messages: [
           {
             role: "user",
-            content: prompt
+            content: [prompt]
           }
         ]
       })
