@@ -64,7 +64,7 @@ async function getConn() {
   await new Promise((res, rej) => conn.connect((e) => (e ? rej(e) : res())));
   return conn;
 }
-function exec(conn, sqlText, binds = {}) {
+function exec(conn, sqlText, binds = []) {
   return new Promise((resolve, reject) => {
     conn.execute({
       sqlText,
@@ -80,8 +80,8 @@ async function fetchTranscript(conn, meetingId) {
     conn,
     `select MEETING_ID, to_varchar(TRANSCRIPT) as TRANSCRIPT
        from MEETINGS
-      where MEETING_ID = :id`,
-    { id: meetingId }
+      where MEETING_ID = ?`,
+    [meetingId]
   );
   if (!rows.length) throw new Error("meeting_not_found");
   return rows[0].TRANSCRIPT; // stored as JSON string inside VARIANT -> varchar
@@ -97,7 +97,7 @@ async function embed(text) {
 
 async function insertChunks(conn, meetingId, chunks) {
   // idempotent refresh
-  await exec(conn, `delete from CHUNKS where MEETING_ID = :id`, { id: meetingId });
+  await exec(conn, `delete from CHUNKS where MEETING_ID = ?`, [meetingId]);
 
   let idx = 0;
   for (const c of chunks) {
@@ -151,10 +151,10 @@ export default async function handler(req, res) {
         conn,
         `select MEETING_ID
            from MEETINGS
-          where CREATED_AT >= to_timestamp_tz(:since)
+          where CREATED_AT >= to_timestamp_tz(?)
           order by CREATED_AT desc
           limit 200`,
-        { since: backfill_since }
+        [backfill_since]
       );
       for (const r of rows) results.push(await processOne(r.MEETING_ID));
     }
