@@ -73,8 +73,25 @@ function exec(conn, sqlText, binds = []) {
 
 // ---- bootstrap helper ----
 async function ensureEmbed1024Column(conn) {
-  const alterSQL = `ALTER TABLE IF NOT EXISTS CHUNKS ADD COLUMN IF NOT EXISTS EMBED_1024 VECTOR(FLOAT, 1024)`;
-  await exec(conn, alterSQL);
+  // Check if EMBED_1024 column already exists
+  const checkSQL = `
+    SELECT COUNT(*) as col_exists
+    FROM INFORMATION_SCHEMA.COLUMNS 
+    WHERE TABLE_NAME = 'CHUNKS' 
+    AND COLUMN_NAME = 'EMBED_1024'
+    AND TABLE_SCHEMA = '${process.env.SNOWFLAKE_SCHEMA}'
+  `;
+  
+  const rows = await exec(conn, checkSQL);
+  const columnExists = rows[0]?.COL_EXISTS > 0;
+  
+  if (!columnExists) {
+    const alterSQL = `ALTER TABLE CHUNKS ADD COLUMN EMBED_1024 VECTOR(FLOAT, 1024)`;
+    await exec(conn, alterSQL);
+    console.log('Added EMBED_1024 column to CHUNKS table');
+  } else {
+    console.log('EMBED_1024 column already exists in CHUNKS table');
+  }
 }
 
 // ---- data access ----
