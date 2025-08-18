@@ -128,7 +128,7 @@ export default async function handler(req, res) {
     if (!question) return res.status(400).json({ error: "missing_question" });
 
     const topK = Math.min(Math.max(Number(body.top_k || 8), 1), 20);
-    const modelId = body.model || "anthropic.claude-3-sonnet-20240229-v1:0"; // Bedrock model
+    const modelId = body.model || "anthropic.claude-3-5-sonnet-20241022-v1:0"; // Nova Pro model
 
     const conn = await getConn();
 
