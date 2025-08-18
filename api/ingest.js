@@ -222,8 +222,8 @@ function dropAndRecreateTable(connection, resolve, reject) {
 async function insertMeeting(connection, payload, participantsArr) {
   const insertSQL = `
     INSERT INTO MEETINGS (
-      meeting_id, title, datetime, participants, note_url, granola_summary, transcript
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      meeting_id, title, datetime, participants, note_url, granola_summary, transcript, customer
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `;
   
   // Convert complex types to JSON strings for TEXT storage and provide defaults for undefined values
@@ -234,7 +234,8 @@ async function insertMeeting(connection, payload, participantsArr) {
     JSON.stringify(participantsArr),     // Store normalized participants as JSON string
     payload.note_url || null,
     payload.granola_summary || null,
-    JSON.stringify(payload.transcript)        // Store as JSON string in TEXT column
+    JSON.stringify(payload.transcript),        // Store as JSON string in TEXT column
+    payload.customer || null  // ← Add this
   ];
   
   return new Promise((resolve, reject) => {

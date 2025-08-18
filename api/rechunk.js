@@ -157,16 +157,46 @@ async function insertChunks(conn, meetingId, chunks) {
   const meetingTitle = meeting.TITLE || "Unknown Meeting";
   const meetingDate = meeting.DATETIME ? new Date(meeting.DATETIME).toISOString().split('T')[0] : "Unknown Date";
   
-  // Parse participants to get customer info (assuming first participant is customer)
+  // Extract and clean customer from the dedicated field (updated logic)
   let customer = "Unknown Customer";
-  try {
-    const participants = JSON.parse(meeting.PARTICIPANTS || '[]');
-    if (participants.length > 0) {
-      customer = participants[0];
+  if (meeting.CUSTOMER && meeting.CUSTOMER !== "Unknown Customer") {
+    const rawCustomer = meeting.CUSTOMER.trim();
+    
+    // Pattern 1: "Company Name (additional info) - more details" → extract "Company Name"
+    const companyPattern = rawCustomer.match(/^([^(]+?)(?:\s*\([^)]*\))?(?:\s*[-–—]\s*)/);
+    if (companyPattern) {
+      customer = companyPattern[1].trim();
     }
-  } catch (e) {
-    console.log("Could not parse participants, using default customer");
+    // Pattern 2: "Company Name (additional info)" → extract "Company Name"
+    else if (rawCustomer.includes('(')) {
+      customer = rawCustomer.split('(')[0].trim();
+    }
+    // Pattern 3: "Company Name - additional info" → extract "Company Name"
+    else if (rawCustomer.includes(' - ')) {
+      customer = rawCustomer.split(' - ')[0].trim();
+    }
+    // Pattern 4: "Company Name: additional info" → extract "Company Name"
+    else if (rawCustomer.includes(':')) {
+      customer = rawCustomer.split(':')[0].trim();
+    }
+    // If no patterns match, use the raw value but clean it up
+    else {
+      customer = rawCustomer.replace(/\s+/g, ' ').trim();
+    }
+    
+    // Final cleanup - remove common company suffixes
+    customer = customer
+      .replace(/(\s+Inc\.?|\s+LLC|\s+Corp\.?|\s+Company|\s+Ltd\.?|\s+Group|\s+Technologies|\s+Systems)$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    
+    // If we ended up with something too short, fall back to raw value
+    if (customer.length < 2) {
+      customer = rawCustomer.trim();
+    }
   }
+  
+  console.log(`Cleaned customer "${customer}" from raw value: "${meeting.CUSTOMER}"`);
 
   // idempotent refresh
   await exec(conn, `DELETE FROM CHUNKS WHERE MEETING_ID = ?`, [meetingId]);
