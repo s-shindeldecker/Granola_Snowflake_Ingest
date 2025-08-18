@@ -43,9 +43,11 @@ function exec(conn, sqlText, binds = []) {
 function buildFilterClause(filters, binds) {
   let where = `c.EMBED_1024 IS NOT NULL`;
   let filterBinds = [];
-  let bindIndex = 0;
   
-  if (!filters) return { where, binds: [...binds, ...filterBinds] };
+  // Ensure binds is an array
+  const baseBinds = Array.isArray(binds) ? binds : [];
+  
+  if (!filters) return { where, binds: baseBinds };
   
   if (filters.meeting_id) { 
     where += ` AND c.MEETING_ID = ?`; 
@@ -68,7 +70,7 @@ function buildFilterClause(filters, binds) {
     filterBinds.push(filters.date_to); 
   }
   
-  return { where, binds: [...binds, ...filterBinds] };
+  return { where, binds: [...baseBinds, ...filterBinds] };
 }
 
 function mkPrompt(question, rows) {
