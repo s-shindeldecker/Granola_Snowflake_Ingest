@@ -115,8 +115,8 @@ async function insertChunks(conn, meetingId, chunks) {
   for (const c of chunks) {
     await exec(
       conn,
-      `insert into CHUNKS (CHUNK_ID, MEETING_ID, IDX, TEXT, EMBED_1024)
-       values (?, ?, ?, ?, NULL)`,
+      `insert into CHUNKS (CHUNK_ID, MEETING_ID, IDX, TEXT)
+       values (?, ?, ?, ?)`,
       [uuidv4(), meetingId, idx, c]
     );
     idx += 1;
