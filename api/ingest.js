@@ -125,30 +125,89 @@ async function createSnowflakeConnection() {
 
 // Create MEETINGS table if it doesn't exist
 async function ensureTableExists(connection) {
-  const createTableSQL = `
-    CREATE TABLE IF NOT EXISTS MEETINGS (
-      MEETING_ID TEXT NOT NULL,
-      TITLE TEXT,
-      DATETIME TIMESTAMP_TZ,
-      PARTICIPANTS TEXT,           -- Changed from ARRAY to TEXT
-      NOTE_URL TEXT,
-      GRANOLA_SUMMARY TEXT,
-      TRANSCRIPT TEXT,             -- Changed from VARIANT to TEXT
-      CREATED_AT TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP()
-    )
+  // First, check the current table schema
+  const checkSchemaSQL = `
+    SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE
+    FROM INFORMATION_SCHEMA.COLUMNS 
+    WHERE TABLE_NAME = 'MEETINGS' 
+    AND TABLE_SCHEMA = '${process.env.SNOWFLAKE_SCHEMA}'
+    ORDER BY ORDINAL_POSITION
   `;
   
   return new Promise((resolve, reject) => {
     connection.execute({
-      sqlText: createTableSQL,
+      sqlText: checkSchemaSQL,
       complete: (err, stmt, rows) => {
         if (err) {
-          reject(new Error(`Failed to create table: ${err.message}`));
+          reject(new Error(`Failed to check table schema: ${err.message}`));
           return;
         }
-        resolve();
+        
+        if (rows && rows.length > 0) {
+          console.log('Current table schema:', rows);
+          
+          // Check if we need to recreate the table
+          const participantsCol = rows.find(row => row.COLUMN_NAME === 'PARTICIPANTS');
+          const transcriptCol = rows.find(row => row.COLUMN_NAME === 'TRANSCRIPT');
+          
+          if ((participantsCol && participantsCol.DATA_TYPE !== 'TEXT') || 
+              (transcriptCol && transcriptCol.DATA_TYPE !== 'TEXT')) {
+            console.log('Table has wrong schema - recreating...');
+            dropAndRecreateTable(connection, resolve, reject);
+          } else {
+            console.log('Table schema is correct, proceeding with insert');
+            resolve();
+          }
+        } else {
+          // No table exists, create it
+          console.log('No table exists, creating new one...');
+          createNewTable(connection, resolve, reject);
+        }
       }
     });
+  });
+}
+
+function createNewTable(connection, resolve, reject) {
+  const createTableSQL = `
+    CREATE TABLE MEETINGS (
+      MEETING_ID TEXT NOT NULL,
+      TITLE TEXT,
+      DATETIME TIMESTAMP_TZ,
+      PARTICIPANTS TEXT,
+      NOTE_URL TEXT,
+      GRANOLA_SUMMARY TEXT,
+      TRANSCRIPT TEXT,
+      CREATED_AT TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP()
+    )
+  `;
+  
+  connection.execute({
+    sqlText: createTableSQL,
+    complete: (err, stmt, rows) => {
+      if (err) {
+        reject(new Error(`Failed to create table: ${err.message}`));
+        return;
+      }
+      console.log('Created new MEETINGS table with correct schema');
+      resolve();
+    }
+  });
+}
+
+function dropAndRecreateTable(connection, resolve, reject) {
+  const dropSQL = `DROP TABLE IF EXISTS MEETINGS`;
+  
+  connection.execute({
+    sqlText: dropSQL,
+    complete: (err, stmt, rows) => {
+      if (err) {
+        reject(new Error(`Failed to drop table: ${err.message}`));
+        return;
+      }
+      console.log('Dropped existing MEETINGS table');
+      createNewTable(connection, resolve, reject);
+    }
   });
 }
 
