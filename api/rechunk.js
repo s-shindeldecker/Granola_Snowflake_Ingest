@@ -1,11 +1,9 @@
 import snowflake from "snowflake-sdk";
-import OpenAI from "openai";
 import { v4 as uuidv4 } from "uuid";
 import { getSnowflakePrivateKeyParam } from "../utils/keys.js";
 
 const {
   INGEST_API_KEY,
-  OPENAI_API_KEY,
   SNOWFLAKE_ACCOUNT,
   SNOWFLAKE_USER,
   SNOWFLAKE_WAREHOUSE,
@@ -13,8 +11,6 @@ const {
   SNOWFLAKE_SCHEMA,
   SNOWFLAKE_ROLE,
 } = process.env;
-
-const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
 // ---- auth helper ----
 function authOK(req) {
@@ -64,6 +60,7 @@ async function getConn() {
   await new Promise((res, rej) => conn.connect((e) => (e ? rej(e) : res())));
   return conn;
 }
+
 function exec(conn, sqlText, binds = []) {
   return new Promise((resolve, reject) => {
     conn.execute({
@@ -72,6 +69,12 @@ function exec(conn, sqlText, binds = []) {
       complete: (err, stmt, rows) => (err ? reject(err) : resolve(rows || [])),
     });
   });
+}
+
+// ---- bootstrap helper ----
+async function ensureEmbed1024Column(conn) {
+  const alterSQL = `ALTER TABLE IF NOT EXISTS CHUNKS ADD COLUMN IF NOT EXISTS EMBED_1024 VECTOR(FLOAT, 1024)`;
+  await exec(conn, alterSQL);
 }
 
 // ---- data access ----
@@ -87,36 +90,33 @@ async function fetchTranscript(conn, meetingId) {
   return rows[0].TRANSCRIPT; // stored as JSON string inside VARIANT -> varchar
 }
 
-async function embed(text) {
-  const r = await openai.embeddings.create({
-    model: "text-embedding-3-small",
-    input: text,
-  });
-  return r.data[0].embedding; // array of floats, len 1536
-}
-
 async function insertChunks(conn, meetingId, chunks) {
   // idempotent refresh
   await exec(conn, `delete from CHUNKS where MEETING_ID = ?`, [meetingId]);
 
   let idx = 0;
   for (const c of chunks) {
-    const emb = await embed(c);
     await exec(
       conn,
-      `insert into CHUNKS (CHUNK_ID, MEETING_ID, IDX, TEXT, EMBEDDING)
-       select :cid, :mid, :idx, :txt,
-              TO_VECTOR(PARSE_JSON(:emb))::VECTOR(FLOAT, 1536)`,
-      {
-        cid: uuidv4(),
-        mid: meetingId,
-        idx,
-        txt: c,
-        emb: JSON.stringify(emb),
-      }
+      `insert into CHUNKS (CHUNK_ID, MEETING_ID, IDX, TEXT, EMBED_1024)
+       values (?, ?, ?, ?, NULL)`,
+      [uuidv4(), meetingId, idx, c]
     );
     idx += 1;
   }
+
+  // Compute embeddings for all chunks of this meeting using Snowflake Cortex
+  if (idx > 0) {
+    await exec(
+      conn,
+      `update CHUNKS
+          set EMBED_1024 = AI_EMBED('snowflake-arctic-embed-l-v2.0', TEXT)
+        where MEETING_ID = ?
+          and EMBED_1024 is null`,
+      [meetingId]
+    );
+  }
+
   return idx;
 }
 
@@ -134,6 +134,9 @@ export default async function handler(req, res) {
     }
 
     const conn = await getConn();
+
+    // Ensure EMBED_1024 column exists
+    await ensureEmbed1024Column(conn);
 
     const processOne = async (id) => {
       const t = await fetchTranscript(conn, id);
@@ -165,3 +168,12 @@ export default async function handler(req, res) {
     res.status(500).json({ error: "rechunk_failed", detail: String(e?.message || e) });
   }
 }
+
+/*
+-- Example semantic search:
+-- select MEETING_ID, IDX, TEXT,
+--        VECTOR_COSINE_SIMILARITY(EMBED_1024, AI_EMBED('snowflake-arctic-embed-l-v2.0', :query)) as sim
+--   from CHUNKS
+--  order by sim desc
+--  limit 12;
+*/
