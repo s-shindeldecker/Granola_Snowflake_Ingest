@@ -254,13 +254,18 @@ async function insertMeeting(connection, payload, participantsArr) {
 
 // Main handler function
 export default async function handler(req, res) {
+  // Add CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
+  // Handle preflight OPTIONS request
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   try {
-    // Only allow POST requests
-    if (req.method !== 'POST') {
-      return res.status(405).json({ 
-        error: 'Method not allowed. Only POST requests are supported.' 
-      });
-    }
+    if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
     
     // Validate environment variables
     validateEnvironment();
