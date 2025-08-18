@@ -226,14 +226,14 @@ async function insertMeeting(connection, payload, participantsArr) {
     ) VALUES (?, ?, ?, ?, ?, ?, ?)
   `;
   
-  // Convert complex types to JSON strings for TEXT storage
+  // Convert complex types to JSON strings for TEXT storage and provide defaults for undefined values
   const params = [
     payload.meeting_id,
-    payload.title,
-    payload.datetime,
+    payload.title || null,
+    payload.datetime || null,
     JSON.stringify(participantsArr),     // Store normalized participants as JSON string
-    payload.note_url,
-    payload.granola_summary,
+    payload.note_url || null,
+    payload.granola_summary || null,
     JSON.stringify(payload.transcript)        // Store as JSON string in TEXT column
   ];
   
