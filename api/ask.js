@@ -30,7 +30,7 @@ async function getConn() {
   await new Promise((res, rej) => conn.connect((e) => (e ? rej(e) : res())));
   return conn;
 }
-function exec(conn, sqlText, binds = {}) {
+function exec(conn, sqlText, binds = []) {
   return new Promise((resolve, reject) => {
     conn.execute({
       sqlText,
@@ -42,13 +42,33 @@ function exec(conn, sqlText, binds = {}) {
 
 function buildFilterClause(filters, binds) {
   let where = `c.EMBED_1024 IS NOT NULL`;
-  if (!filters) return { where, binds };
-  if (filters.meeting_id) { where += ` AND c.MEETING_ID = :f_meeting_id`; binds.f_meeting_id = filters.meeting_id; }
-  if (filters.title_like) { where += ` AND m.TITLE ILIKE :f_title_like`; binds.f_title_like = `%${filters.title_like}%`; }
-  if (filters.participants_contains) { where += ` AND m.PARTICIPANTS ILIKE :f_participant`; binds.f_participant = `%${filters.participants_contains}%`; }
-  if (filters.date_from) { where += ` AND m.DATETIME >= TO_TIMESTAMP_TZ(:f_from)`; binds.f_from = filters.date_from; }
-  if (filters.date_to) { where += ` AND m.DATETIME <= TO_TIMESTAMP_TZ(:f_to)`; binds.f_to = filters.date_to; }
-  return { where, binds };
+  let filterBinds = [];
+  let bindIndex = 0;
+  
+  if (!filters) return { where, binds: [...binds, ...filterBinds] };
+  
+  if (filters.meeting_id) { 
+    where += ` AND c.MEETING_ID = ?`; 
+    filterBinds.push(filters.meeting_id); 
+  }
+  if (filters.title_like) { 
+    where += ` AND m.TITLE ILIKE ?`; 
+    filterBinds.push(`%${filters.title_like}%`); 
+  }
+  if (filters.participants_contains) { 
+    where += ` AND m.PARTICIPANTS ILIKE ?`; 
+    filterBinds.push(`%${filters.participants_contains}%`); 
+  }
+  if (filters.date_from) { 
+    where += ` AND m.DATETIME >= TO_TIMESTAMP_TZ(?)`; 
+    filterBinds.push(filters.date_from); 
+  }
+  if (filters.date_to) { 
+    where += ` AND m.DATETIME <= TO_TIMESTAMP_TZ(?)`; 
+    filterBinds.push(filters.date_to); 
+  }
+  
+  return { where, binds: [...binds, ...filterBinds] };
 }
 
 function mkPrompt(question, rows) {
@@ -109,8 +129,8 @@ export default async function handler(req, res) {
     // 2) Build prompt and call AI_COMPLETE in Snowflake
     const prompt = mkPrompt(question, rows.slice(0, topK));
     const ansRows = await exec(conn, `
-      SELECT AI_COMPLETE(:model, :prompt, OBJECT_CONSTRUCT('temperature', 0.2, 'max_output_tokens', 800)) AS ANSWER
-    `, { model, prompt });
+      SELECT AI_COMPLETE(?, ?, OBJECT_CONSTRUCT('temperature', 0.2, 'max_output_tokens', 800)) AS ANSWER
+    `, [model, prompt]);
 
     const answer = ansRows?.[0]?.ANSWER || "";
 
