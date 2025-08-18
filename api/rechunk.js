@@ -126,7 +126,7 @@ export default async function handler(req, res) {
     if (!authOK(req)) return res.status(401).json({ error: "unauthorized" });
 
     // Body: { meeting_id } OR { backfill_since: ISO8601 }
-    const body = (await req.json?.()) ?? {};
+    const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
     const { meeting_id, backfill_since } = body || {};
 
     if (!meeting_id && !backfill_since) {
