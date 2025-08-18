@@ -15,12 +15,26 @@ const {
   SNOWFLAKE_ROLE,
 } = process.env;
 
+// Debug AWS credentials (remove in production)
+console.log('AWS Credentials check:', {
+  hasAccessKey: !!AWS_ACCESS_KEY_ID,
+  hasSecretKey: !!AWS_SECRET_ACCESS_KEY,
+  region: AWS_REGION || 'us-east-1',
+  accessKeyPrefix: AWS_ACCESS_KEY_ID?.substring(0, 5) + '...'
+});
+
+// Validate AWS credentials before creating client
+if (!AWS_ACCESS_KEY_ID || !AWS_SECRET_ACCESS_KEY) {
+  throw new Error('Missing AWS credentials: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are required');
+}
+
 const bedrockClient = new BedrockRuntimeClient({
   region: AWS_REGION || 'us-east-1',
   credentials: {
     accessKeyId: AWS_ACCESS_KEY_ID,
     secretAccessKey: AWS_SECRET_ACCESS_KEY,
   },
+  maxAttempts: 1, // Reduce retries for faster error detection
 });
 
 function authOK(req) {
@@ -142,6 +156,12 @@ export default async function handler(req, res) {
 
     // 2) Build prompt and call AWS Bedrock
     const prompt = mkPrompt(question, rows.slice(0, topK));
+    
+    console.log('Calling Bedrock with:', {
+      modelId,
+      promptLength: prompt.length,
+      hasClient: !!bedrockClient
+    });
     
     const bedrockResponse = await bedrockClient.send(new InvokeModelCommand({
       modelId: modelId,
