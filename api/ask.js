@@ -168,22 +168,12 @@ export default async function handler(req, res) {
       contentType: "application/json",
       accept: "application/json",
       body: JSON.stringify({
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: prompt
-              }
-            ]
-          }
-        ]
+        prompt: prompt
       })
     }));
 
     const responseBody = JSON.parse(new TextDecoder().decode(bedrockResponse.body));
-    const answer = responseBody.content?.[0]?.text || responseBody.completion || responseBody.text || "";
+    const answer = responseBody.completion || responseBody.text || responseBody.content?.[0]?.text || "";
 
     // Return answer plus lightweight citations
     const sources = rows.map(r => ({
