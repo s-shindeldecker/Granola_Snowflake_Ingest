@@ -1,5 +1,5 @@
 import snowflake from "snowflake-sdk";
-import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
+import { BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
 import { getSnowflakePrivateKeyParam } from "../utils/keys.js";
 
 const {
@@ -163,17 +163,20 @@ export default async function handler(req, res) {
       hasClient: !!bedrockClient
     });
     
-    const bedrockResponse = await bedrockClient.send(new InvokeModelCommand({
+    const bedrockResponse = await bedrockClient.send(new ConverseCommand({
       modelId: modelId,
-      contentType: "application/json",
-      accept: "application/json",
-      body: JSON.stringify({
-        prompt: prompt
-      })
+      messages: [
+        { role: "user", content: [{ text: prompt }] }
+      ],
+      inferenceConfig: {
+        maxTokens: 800,
+        temperature: 0.2,
+        topP: 0.9
+      }
     }));
 
-    const responseBody = JSON.parse(new TextDecoder().decode(bedrockResponse.body));
-    const answer = responseBody.completion || responseBody.text || responseBody.content?.[0]?.text || "";
+    const responseBody = bedrockResponse;
+    const answer = responseBody?.output?.message?.content?.[0]?.text || "";
 
     // Return answer plus lightweight citations
     const sources = rows.map(r => ({
