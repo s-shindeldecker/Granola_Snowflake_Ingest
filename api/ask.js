@@ -107,11 +107,11 @@ export default async function handler(req, res) {
     const conn = await getConn();
 
     // 1) Retrieve top-K chunks using AI_EMBED + VECTOR_COSINE_SIMILARITY
-    const binds = { q: question, k: topK };
-    const { where, binds: withFilters } = buildFilterClause(body.filters, binds);
+    const baseBinds = [question, topK];
+    const { where, binds: withFilters } = buildFilterClause(body.filters, baseBinds);
     const rows = await exec(conn, `
       WITH q AS (
-        SELECT AI_EMBED('snowflake-arctic-embed-l-v2.0', :q) AS QV
+        SELECT AI_EMBED('snowflake-arctic-embed-l-v2.0', ?) AS QV
       )
       SELECT c.CHUNK_ID, c.MEETING_ID, c.IDX, c.TEXT,
              m.TITLE,
@@ -121,7 +121,7 @@ export default async function handler(req, res) {
         JOIN q
        WHERE ${where}
        ORDER BY SIM DESC
-       LIMIT :k
+       LIMIT ?
     `, withFilters);
 
     if (!rows.length) {
