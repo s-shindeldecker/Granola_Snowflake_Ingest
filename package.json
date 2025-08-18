@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "snowflake-sdk": "^1.9.0",
-    "openai": "^4.0.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.0.0",
     "uuid": "^9.0.0"
   },
   "devDependencies": {

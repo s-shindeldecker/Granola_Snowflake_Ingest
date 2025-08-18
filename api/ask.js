@@ -1,10 +1,12 @@
 import snowflake from "snowflake-sdk";
-import OpenAI from "openai";
+import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
 import { getSnowflakePrivateKeyParam } from "../utils/keys.js";
 
 const {
   INGEST_API_KEY,
-  OPENAI_API_KEY,
+  AWS_ACCESS_KEY_ID,
+  AWS_SECRET_ACCESS_KEY,
+  AWS_REGION,
   SNOWFLAKE_ACCOUNT,
   SNOWFLAKE_USER,
   SNOWFLAKE_WAREHOUSE,
@@ -13,7 +15,13 @@ const {
   SNOWFLAKE_ROLE,
 } = process.env;
 
-const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+const bedrockClient = new BedrockRuntimeClient({
+  region: AWS_REGION || 'us-east-1',
+  credentials: {
+    accessKeyId: AWS_ACCESS_KEY_ID,
+    secretAccessKey: AWS_SECRET_ACCESS_KEY,
+  },
+});
 
 function authOK(req) {
   const h = req.headers.get?.("authorization") || req.headers.authorization || "";
@@ -106,7 +114,7 @@ export default async function handler(req, res) {
     if (!question) return res.status(400).json({ error: "missing_question" });
 
     const topK = Math.min(Math.max(Number(body.top_k || 8), 1), 20);
-    const model = body.model || "gpt-4o-mini"; // OpenAI model
+    const modelId = body.model || "anthropic.claude-3-sonnet-20240229-v1:0"; // Bedrock model
 
     const conn = await getConn();
 
@@ -132,19 +140,28 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, answer: "I couldn't find anything relevant.", sources: [] });
     }
 
-    // 2) Build prompt and call OpenAI
+    // 2) Build prompt and call AWS Bedrock
     const prompt = mkPrompt(question, rows.slice(0, topK));
-    const completion = await openai.chat.completions.create({
-      model: model,
-      max_tokens: 800,
-      temperature: 0.2,
-      messages: [
-        { role: "system", content: "You are a helpful assistant that answers questions based on meeting transcripts." },
-        { role: "user", content: prompt }
-      ]
-    });
+    
+    const bedrockResponse = await bedrockClient.send(new InvokeModelCommand({
+      modelId: modelId,
+      contentType: "application/json",
+      accept: "application/json",
+      body: JSON.stringify({
+        anthropic_version: "bedrock-2023-05-31",
+        max_tokens: 800,
+        temperature: 0.2,
+        messages: [
+          {
+            role: "user",
+            content: prompt
+          }
+        ]
+      })
+    }));
 
-    const answer = completion.choices[0]?.message?.content || "";
+    const responseBody = JSON.parse(new TextDecoder().decode(bedrockResponse.body));
+    const answer = responseBody.content[0].text || "";
 
     // Return answer plus lightweight citations
     const sources = rows.map(r => ({
