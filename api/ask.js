@@ -168,20 +168,15 @@ export default async function handler(req, res) {
       contentType: "application/json",
       accept: "application/json",
       body: JSON.stringify({
-        anthropic_version: "bedrock-2023-05-31",
-        max_tokens: 800,
+        prompt: prompt,
+        maxTokens: 800,
         temperature: 0.2,
-        messages: [
-          {
-            role: "user",
-            content: prompt
-          }
-        ]
+        topP: 0.9
       })
     }));
 
     const responseBody = JSON.parse(new TextDecoder().decode(bedrockResponse.body));
-    const answer = responseBody.content[0].text || "";
+    const answer = responseBody.completion || responseBody.text || "";
 
     // Return answer plus lightweight citations
     const sources = rows.map(r => ({
