@@ -44,22 +44,29 @@ function validateApiKey(authHeader) {
 
 // Validate request payload
 function validatePayload(payload) {
-  const required = ['meeting_id', 'title', 'datetime', 'participants', 'note_url', 'granola_summary', 'transcript'];
-  const missing = required.filter(key => !payload[key]);
-  
+  const missing = [];
+  if (!payload.meeting_id) missing.push('meeting_id');
+  if (!payload.transcript) missing.push('transcript');
   if (missing.length > 0) {
     throw new Error(`Missing required fields: ${missing.join(', ')}`);
   }
-  
-  // Validate datetime format
-  if (isNaN(Date.parse(payload.datetime))) {
-    throw new Error('Invalid datetime format');
+}
+
+// Normalize participants input to always return a JSON array
+function normalizeParticipants(input) {
+  if (Array.isArray(input)) {
+    return input.map(v => String(v).trim()).filter(Boolean);
   }
-  
-  // Ensure participants is an array
-  if (!Array.isArray(payload.participants)) {
-    throw new Error('Participants must be an array');
+  if (typeof input === 'string') {
+    return input.split(/[,;]\s*/).map(s => s.trim()).filter(Boolean);
   }
+  // also accept accidentally sent "participants[]"
+  if (input == null && this && typeof this.body === 'object') {
+    const alt = this.body?.['participants[]'];
+    if (Array.isArray(alt)) return alt.map(s => String(s).trim()).filter(Boolean);
+    if (typeof alt === 'string') return alt.split(/[,;]\s*/).map(s => s.trim()).filter(Boolean);
+  }
+  return [];
 }
 
 // Create Snowflake connection
@@ -212,7 +219,7 @@ function dropAndRecreateTable(connection, resolve, reject) {
 }
 
 // Insert meeting data
-async function insertMeeting(connection, payload) {
+async function insertMeeting(connection, payload, participantsArr) {
   const insertSQL = `
     INSERT INTO MEETINGS (
       meeting_id, title, datetime, participants, note_url, granola_summary, transcript
@@ -224,7 +231,7 @@ async function insertMeeting(connection, payload) {
     payload.meeting_id,
     payload.title,
     payload.datetime,
-    JSON.stringify(payload.participants),     // Store as JSON string in TEXT column
+    JSON.stringify(participantsArr),     // Store normalized participants as JSON string
     payload.note_url,
     payload.granola_summary,
     JSON.stringify(payload.transcript)        // Store as JSON string in TEXT column
@@ -277,6 +284,7 @@ export default async function handler(req, res) {
       });
     }
     
+    const participantsArr = normalizeParticipants.call({ body: payload }, payload.participants);
     validatePayload(payload);
     
     // Connect to Snowflake
@@ -287,7 +295,7 @@ export default async function handler(req, res) {
       await ensureTableExists(connection);
       
       // Insert the meeting data
-      await insertMeeting(connection, payload);
+      await insertMeeting(connection, payload, participantsArr);
       
       // Close connection
       connection.destroy();
