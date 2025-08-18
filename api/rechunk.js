@@ -132,13 +132,13 @@ async function ensureEmbed1024Column(conn) {
 async function fetchTranscript(conn, meetingId) {
   const rows = await exec(
     conn,
-    `select MEETING_ID, to_varchar(TRANSCRIPT) as TRANSCRIPT
-       from MEETINGS
-      where MEETING_ID = ?`,
+    `SELECT MEETING_ID, TRANSCRIPT
+       FROM MEETINGS
+      WHERE MEETING_ID = ?`,
     [meetingId]
   );
   if (!rows.length) throw new Error("meeting_not_found");
-  return rows[0].TRANSCRIPT; // stored as JSON string inside VARIANT -> varchar
+  return rows[0].TRANSCRIPT; // stored as TEXT column
 }
 
 async function insertChunks(conn, meetingId, chunks) {
